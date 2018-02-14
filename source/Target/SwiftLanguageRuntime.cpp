@@ -35,6 +35,7 @@
 #include "lldb/Utility/Status.h"
 #include "lldb/Core/Mangled.h"
 #include "lldb/Core/Module.h"
+#include "lldb/Core/Section.h"
 #include "lldb/Core/PluginManager.h"
 #include "lldb/Core/UniqueCStringMap.h"
 #include "lldb/Core/Value.h"
@@ -81,12 +82,41 @@ using namespace lldb_private;
 //----------------------------------------------------------------------
 SwiftLanguageRuntime::~SwiftLanguageRuntime() {}
 
+static void findReflectionSection(SectionList *SecList, ConstString Name) {
+  auto Sec = SecList->FindSectionByName(Name);
+  if (Sec) {
+    printf("Allegedly: %s\n", Name.GetCString());
+    printf("PATATUCCIO!\n");
+    printf("size: %llu\n", Sec->GetByteSize());
+    printf("address: %llu\n", Sec->GetFileAddress());
+  }
+}
+
+static void InitializeReflectionInfo(Process *process) {
+  auto &Target = process->GetTarget();
+  auto M = Target.GetExecutableModule();
+  SectionList *SecList = M->GetSectionList();
+  findReflectionSection(SecList,
+                        ConstString("__swift5_fieldmd"));
+  findReflectionSection(SecList,
+                        ConstString("__swift5_assocty"));
+  findReflectionSection(SecList,
+                        ConstString("__swift5_builtin"));
+  findReflectionSection(SecList,
+                        ConstString("__swift5_capture"));
+  findReflectionSection(SecList,
+                        ConstString("__swift5_typeref"));
+  findReflectionSection(SecList,
+                        ConstString("__swift5_reflstr"));
+}
+
 SwiftLanguageRuntime::SwiftLanguageRuntime(Process *process)
     : LanguageRuntime(process), m_negative_cache_mutex(),
       m_SwiftNativeNSErrorISA(), m_memory_reader_sp(), m_promises_map(),
       m_resolvers_map(), m_bridged_synthetics_map(), m_box_metadata_type() {
   SetupSwiftError();
   SetupExclusivity();
+  InitializeReflectionInfo(process);
 }
 
 static llvm::Optional<lldb::addr_t>

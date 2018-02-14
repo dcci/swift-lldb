@@ -4800,6 +4800,16 @@ void SwiftASTContext::PrintDiagnostics(DiagnosticManager &diagnostic_manager,
   }
 }
 
+static void findReflectionSection(SectionList *SecList, ConstString Name) {
+  auto Sec = SecList->FindSectionByName(Name);
+  if (Sec) {
+    printf("Allegedly: %s\n", Name.GetCString());
+    printf("PATATUCCIO!\n");
+    printf("size: %llu\n", Sec->GetByteSize());
+    printf("address: %llu\n", Sec->GetFileAddress());
+  }
+}
+
 void SwiftASTContext::ModulesDidLoad(ModuleList &module_list) {
   ClearModuleDependentCaches();
 }
