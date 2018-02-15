@@ -66,6 +66,8 @@ add_lldb_library(lldbTarget
     swiftAST
     swiftBasic
     swiftFrontend
+    # Figure out why libswiftReflection doesn't work.
+    /Users/davide/work/swift/build/Ninja-DebugAssert+stdlib-Debug/swift-macosx-x86_64/lib/swift/macosx/libswiftReflection.a
     swiftRemoteAST
     lldbBreakpoint
     lldbCore

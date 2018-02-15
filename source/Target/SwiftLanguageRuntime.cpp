@@ -27,7 +27,9 @@
 #include "swift/AST/Module.h"
 #include "swift/AST/Types.h"
 #include "swift/Demangling/Demangle.h"
+#include "swift/Reflection/ReflectionContext.h"
 #include "swift/Reflection/TypeRefBuilder.h"
+#include "swift/Runtime/Metadata.h"
 #include "swift/Remote/MemoryReader.h"
 #include "swift/RemoteAST/RemoteAST.h"
 
@@ -146,6 +148,9 @@ static swift::reflection::ReflectionInfo InitializeReflectionInfo(Process *proce
   };
 }
 
+using NativeReflectionContext
+  = swift::reflection::ReflectionContext<swift::External<swift::RuntimeTarget<sizeof(uintptr_t)>>>;
+
 SwiftLanguageRuntime::SwiftLanguageRuntime(Process *process)
     : LanguageRuntime(process), m_negative_cache_mutex(),
       m_SwiftNativeNSErrorISA(), m_memory_reader_sp(), m_promises_map(),
@@ -153,6 +158,7 @@ SwiftLanguageRuntime::SwiftLanguageRuntime(Process *process)
   SetupSwiftError();
   SetupExclusivity();
   InitializeReflectionInfo(process);
+  NativeReflectionContext ctx(std::move(this->GetMemoryReader()));
 }
 
 static llvm::Optional<lldb::addr_t>
