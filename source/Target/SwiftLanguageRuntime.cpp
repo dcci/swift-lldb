@@ -27,6 +27,7 @@
 #include "swift/AST/Module.h"
 #include "swift/AST/Types.h"
 #include "swift/Demangling/Demangle.h"
+#include "swift/Reflection/TypeRefBuilder.h"
 #include "swift/Remote/MemoryReader.h"
 #include "swift/RemoteAST/RemoteAST.h"
 
@@ -52,6 +53,7 @@
 #include "lldb/Interpreter/OptionValueBoolean.h"
 #include "lldb/Symbol/ClangASTContext.h"
 #include "lldb/Symbol/CompileUnit.h"
+#include "lldb/Symbol/ObjectFile.h"
 #include "lldb/Symbol/SwiftASTContext.h"
 #include "lldb/Symbol/Symbol.h"
 #include "lldb/Symbol/TypeList.h"
@@ -82,32 +84,66 @@ using namespace lldb_private;
 //----------------------------------------------------------------------
 SwiftLanguageRuntime::~SwiftLanguageRuntime() {}
 
-static void findReflectionSection(SectionList *SecList, ConstString Name) {
+template <typename Section>
+static std::pair<Section, uintptr_t>
+  findReflectionSection(SectionList *SecList, ConstString Name) {
   auto Sec = SecList->FindSectionByName(Name);
-  if (Sec) {
-    printf("Allegedly: %s\n", Name.GetCString());
-    printf("PATATUCCIO!\n");
-    printf("size: %llu\n", Sec->GetByteSize());
-    printf("address: %llu\n", Sec->GetFileAddress());
-  }
+  if (!Sec)
+    return {{nullptr, nullptr}, 0};
+#if 1 /* DEBUG */
+  printf("name: %s\n", Name.GetCString());
+  printf("address: %llx\n",
+         reinterpret_cast<const void *>(Sec->GetFileAddress()));
+  printf("end: %llx\n",
+         reinterpret_cast<const void *>(Sec->GetFileAddress() +
+                                        Sec->GetByteSize()));
+#endif /* DEBUG */
+  return {{reinterpret_cast<const void *>(Sec->GetFileAddress()),
+    reinterpret_cast<const void *>(Sec->GetFileAddress() +
+                                          Sec->GetByteSize())
+  }, 0 /* Offset */};
 }
 
-static void InitializeReflectionInfo(Process *process) {
+static swift::reflection::ReflectionInfo InitializeReflectionInfo(Process *process) {
   auto &Target = process->GetTarget();
   auto M = Target.GetExecutableModule();
   SectionList *SecList = M->GetSectionList();
-  findReflectionSection(SecList,
+  auto fieldSection =
+    findReflectionSection<swift::reflection::FieldSection>(SecList,
                         ConstString("__swift5_fieldmd"));
-  findReflectionSection(SecList,
+  auto associatedTypeSection =
+    findReflectionSection<swift::reflection::AssociatedTypeSection>(SecList,
                         ConstString("__swift5_assocty"));
-  findReflectionSection(SecList,
+  auto builtinTypeSection =
+  findReflectionSection<swift::reflection::BuiltinTypeSection>(SecList,
                         ConstString("__swift5_builtin"));
-  findReflectionSection(SecList,
+  auto captureSection =
+  findReflectionSection<swift::reflection::CaptureSection>(SecList,
                         ConstString("__swift5_capture"));
-  findReflectionSection(SecList,
+  auto typeRefSection =
+  findReflectionSection<swift::reflection::GenericSection>(SecList,
                         ConstString("__swift5_typeref"));
-  findReflectionSection(SecList,
+  auto reflectionStringSection =
+  findReflectionSection<swift::reflection::GenericSection>(SecList,
                         ConstString("__swift5_reflstr"));
+  
+  auto *ObjFile = M->GetObjectFile();
+  auto startAddress = ObjFile->GetHeaderAddress();
+  auto startPtr = static_cast<uintptr_t>(startAddress.GetFileAddress());
+#if 1 /* DEBUG */
+  printf("startaddr: %llx\n", static_cast<unsigned long long>(startPtr));
+#endif /* DEBUG */
+
+  return {
+    {fieldSection.first, fieldSection.second},
+    {associatedTypeSection.first, associatedTypeSection.second},
+    {builtinTypeSection.first, builtinTypeSection.second},
+    {captureSection.first, captureSection.second},
+    {typeRefSection.first, typeRefSection.second},
+    {reflectionStringSection.first, reflectionStringSection.second},
+    startPtr /*FIXME LocalStartAddr */,
+    startPtr /*FIXME RemoteStartAddr */
+  };
 }
 
 SwiftLanguageRuntime::SwiftLanguageRuntime(Process *process)
