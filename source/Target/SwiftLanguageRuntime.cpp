@@ -92,25 +92,11 @@ static std::pair<Section, uintptr_t>
   auto Sec = SecList->FindSectionByName(Name);
   if (!Sec)
     return {{nullptr, nullptr}, 0};
-#if 1 /* DEBUG */
-  printf("name: %s\n", Name.GetCString());
-  printf("address: %llx\n",
-         reinterpret_cast<const void *>(Sec->GetFileAddress()));
-  printf("end: %llx\n",
-         reinterpret_cast<const void *>(Sec->GetFileAddress() +
-                                        Sec->GetByteSize()));
-#endif /* DEBUG */
+
   // This is leaking, whatever.
   char *localcopy = (char *)calloc(Sec->GetByteSize(), Sec->GetByteSize());
   assert(localcopy != nullptr);
   Sec->GetSectionData(localcopy, Sec->GetByteSize());
-
-#ifdef notyet
-  return {{reinterpret_cast<const void *>(Sec->GetFileAddress()),
-    reinterpret_cast<const void *>(Sec->GetFileAddress() +
-                                          Sec->GetByteSize())
-  }, 0 /* Offset */};
-#endif
 
   return {{reinterpret_cast<const void *>(localcopy),
     reinterpret_cast<const void *>(localcopy + Sec->GetByteSize())
@@ -142,13 +128,7 @@ static swift::reflection::ReflectionInfo InitializeReflectionInfo(Process *proce
   
   auto *ObjFile = M->GetObjectFile();
   Address startAddress = ObjFile->GetHeaderAddress();
-  auto startPtr = static_cast<uintptr_t>(startAddress.GetFileAddress());
   auto loadPtr = static_cast<uintptr_t>(startAddress.GetLoadAddress(&process->GetTarget()));
-  //addr_t load_addr = startAddress.GetLoadAddress(&process->GetTarget());
-#if 1 /* DEBUG */
-  printf("startaddr: %llx\n", static_cast<unsigned long long>(startPtr));
-  printf("loadaddr: %llx\n", static_cast<unsigned long long>(loadPtr));
-#endif /* DEBUG */
 
   return {
     {fieldSection.first, fieldSection.second},
@@ -157,8 +137,8 @@ static swift::reflection::ReflectionInfo InitializeReflectionInfo(Process *proce
     {captureSection.first, captureSection.second},
     {typeRefSection.first, typeRefSection.second},
     {reflectionStringSection.first, reflectionStringSection.second},
-    startPtr /*FIXME LocalStartAddr */,
-    startPtr /*FIXME RemoteStartAddr */
+    loadPtr /*FIXME LocalStartAddr */,
+    loadPtr /*FIXME RemoteStartAddr */
   };
 }
 
