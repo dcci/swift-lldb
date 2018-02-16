@@ -100,9 +100,20 @@ static std::pair<Section, uintptr_t>
          reinterpret_cast<const void *>(Sec->GetFileAddress() +
                                         Sec->GetByteSize()));
 #endif /* DEBUG */
+  // This is leaking, whatever.
+  char *localcopy = (char *)calloc(Sec->GetByteSize(), Sec->GetByteSize());
+  assert(localcopy != nullptr);
+  Sec->GetSectionData(localcopy, Sec->GetByteSize());
+
+#ifdef notyet
   return {{reinterpret_cast<const void *>(Sec->GetFileAddress()),
     reinterpret_cast<const void *>(Sec->GetFileAddress() +
                                           Sec->GetByteSize())
+  }, 0 /* Offset */};
+#endif
+
+  return {{reinterpret_cast<const void *>(localcopy),
+    reinterpret_cast<const void *>(localcopy + Sec->GetByteSize())
   }, 0 /* Offset */};
 }
 
@@ -130,10 +141,13 @@ static swift::reflection::ReflectionInfo InitializeReflectionInfo(Process *proce
                         ConstString("__swift5_reflstr"));
   
   auto *ObjFile = M->GetObjectFile();
-  auto startAddress = ObjFile->GetHeaderAddress();
+  Address startAddress = ObjFile->GetHeaderAddress();
   auto startPtr = static_cast<uintptr_t>(startAddress.GetFileAddress());
+  auto loadPtr = static_cast<uintptr_t>(startAddress.GetLoadAddress(&process->GetTarget()));
+  //addr_t load_addr = startAddress.GetLoadAddress(&process->GetTarget());
 #if 1 /* DEBUG */
   printf("startaddr: %llx\n", static_cast<unsigned long long>(startPtr));
+  printf("loadaddr: %llx\n", static_cast<unsigned long long>(loadPtr));
 #endif /* DEBUG */
 
   return {
@@ -151,14 +165,19 @@ static swift::reflection::ReflectionInfo InitializeReflectionInfo(Process *proce
 using NativeReflectionContext
   = swift::reflection::ReflectionContext<swift::External<swift::RuntimeTarget<sizeof(uintptr_t)>>>;
 
+static void tryDumping(NativeReflectionContext &Ctx, std::ostream &OS) {
+  Ctx.getBuilder().dumpAllSections(OS);
+}
+
 SwiftLanguageRuntime::SwiftLanguageRuntime(Process *process)
     : LanguageRuntime(process), m_negative_cache_mutex(),
       m_SwiftNativeNSErrorISA(), m_memory_reader_sp(), m_promises_map(),
       m_resolvers_map(), m_bridged_synthetics_map(), m_box_metadata_type() {
   SetupSwiftError();
   SetupExclusivity();
-  InitializeReflectionInfo(process);
-  NativeReflectionContext ctx(std::move(this->GetMemoryReader()));
+  NativeReflectionContext ctx(this->GetMemoryReader());
+  ctx.addReflectionInfo(InitializeReflectionInfo(process));
+  tryDumping(ctx, std::cout);
 }
 
 static llvm::Optional<lldb::addr_t>
