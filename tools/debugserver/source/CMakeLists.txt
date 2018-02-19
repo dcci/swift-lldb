@@ -89,37 +89,56 @@ set(lldbDebugserverCommonSources
   ${generated_mach_interfaces}
   ${DEBUGSERVER_VERS_GENERATED_FILE})
 
-add_library(lldbDebugserverCommon ${lldbDebugserverCommonSources})
-
-
-if (APPLE)
-  if(IOS)
-    find_library(COCOA_LIBRARY UIKit)
-    target_link_libraries(lldbDebugserverCommon INTERFACE ${COCOA_LIBRARY} ${CORE_FOUNDATION_LIBRARY} ${FOUNDATION_LIBRARY})
-  else()
-    find_library(COCOA_LIBRARY Cocoa)
-    target_link_libraries(lldbDebugserverCommon INTERFACE ${COCOA_LIBRARY})
+if (NOT SKIP_DEBUGSERVER)
+  add_library(lldbDebugserverCommon ${lldbDebugserverCommonSources})
+  
+  
+  if (APPLE)
+    if(IOS)
+      find_library(COCOA_LIBRARY UIKit)
+      target_link_libraries(lldbDebugserverCommon INTERFACE ${COCOA_LIBRARY} ${CORE_FOUNDATION_LIBRARY} ${FOUNDATION_LIBRARY})
+    else()
+      find_library(COCOA_LIBRARY Cocoa)
+      target_link_libraries(lldbDebugserverCommon INTERFACE ${COCOA_LIBRARY})
+    endif()
   endif()
+  
+  target_link_libraries(lldbDebugserverCommon
+                        INTERFACE ${COCOA_LIBRARY}
+                        ${CORE_FOUNDATION_LIBRARY}
+                        ${FOUNDATION_LIBRARY}
+                        lldbDebugserverArchSupport
+                        lldbDebugserverDarwin_DarwinLog)
+  
+  set(LLVM_OPTIONAL_SOURCES ${lldbDebugserverCommonSources})
+  add_lldb_tool(debugserver INCLUDE_IN_FRAMEWORK
+    debugserver.cpp
+  
+    LINK_LIBS
+      lldbDebugserverCommon
+    )
 endif()
-
-target_link_libraries(lldbDebugserverCommon
-                      INTERFACE ${COCOA_LIBRARY}
-                      ${CORE_FOUNDATION_LIBRARY}
-                      ${FOUNDATION_LIBRARY}
-                      lldbDebugserverArchSupport
-                      lldbDebugserverDarwin_DarwinLog)
-
-set(LLVM_OPTIONAL_SOURCES ${lldbDebugserverCommonSources})
-add_lldb_tool(debugserver INCLUDE_IN_FRAMEWORK
-  debugserver.cpp
-
-  LINK_LIBS
-    lldbDebugserverCommon
-  )
 
 set(LLDB_CODESIGN_IDENTITY "lldb_codesign"
   CACHE STRING "Identity used for code signing. Set to empty string to skip the signing step.")
-if (NOT ("${LLDB_CODESIGN_IDENTITY}" STREQUAL ""))
+set(LLDB_USE_ENTITLEMENTS_Default On)
+if("${LLDB_CODESIGN_IDENTITY}" STREQUAL "lldb_codesign")
+  set(LLDB_USE_ENTITLEMENTS_Default Off)
+endif()
+option(LLDB_USE_ENTITLEMENTS "Use entitlements when codesigning (Defaults Off when using lldb_codesign identity, otherwise On)" ${LLDB_USE_ENTITLEMENTS_Default})
+
+if ("${LLDB_CODESIGN_IDENTITY}" STREQUAL "")
+  if (CMAKE_HOST_APPLE)
+    # If we haven't built a signed debugserver, copy the one from the system.
+    add_custom_target(debugserver
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different ${DEBUGSERVER_PATH} ${CMAKE_BINARY_DIR}/bin
+      VERBATIM
+      COMMENT "Copying the system debugserver to LLDB's binaries directory.")
+  endif()
+else()
+  if(LLDB_USE_ENTITLEMENTS)
+    set(entitlements_flags --entitlements ${entitlements_xml})
+  endif()
   execute_process(
     COMMAND xcrun -f codesign_allocate
     OUTPUT_STRIP_TRAILING_WHITESPACE
