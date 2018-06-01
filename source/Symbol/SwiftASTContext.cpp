@@ -4619,10 +4619,6 @@ void SwiftASTContext::PrintDiagnostics(DiagnosticManager &diagnostic_manager,
   }
 }
 
-void SwiftASTContext::ModulesDidLoad(ModuleList &module_list) {
-  ClearModuleDependentCaches();
-}
-
 void SwiftASTContext::ClearModuleDependentCaches() {
   m_negative_type_cache.Clear();
   m_extra_type_info_cache.Clear();

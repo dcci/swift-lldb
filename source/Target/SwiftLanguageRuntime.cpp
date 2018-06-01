@@ -28,8 +28,12 @@
 #include "swift/AST/Types.h"
 #include "swift/Demangling/Demangle.h"
 #include "swift/Demangling/Demangler.h"
+#include "swift/Reflection/ReflectionContext.h"
+#include "swift/Reflection/TypeRefBuilder.h"
 #include "swift/Remote/MemoryReader.h"
+#include "swift/Remote/RemoteAddress.h"
 #include "swift/RemoteAST/RemoteAST.h"
+#include "swift/Runtime/Metadata.h"
 
 #include "lldb/Breakpoint/StoppointCallbackContext.h"
 #include "lldb/Core/Debugger.h"
@@ -54,6 +58,7 @@
 #include "lldb/Symbol/CompileUnit.h"
 #include "lldb/Symbol/SwiftASTContext.h"
 #include "lldb/Symbol/Symbol.h"
+#include "lldb/Symbol/ObjectFile.h"
 #include "lldb/Symbol/TypeList.h"
 #include "lldb/Symbol/VariableList.h"
 #include "lldb/Target/ExecutionContext.h"
@@ -82,12 +87,63 @@ using namespace lldb_private;
 //----------------------------------------------------------------------
 SwiftLanguageRuntime::~SwiftLanguageRuntime() {}
 
+using NativeReflectionContext = swift::reflection::ReflectionContext<
+    swift::External<swift::RuntimeTarget<sizeof(uintptr_t)>>>;
+NativeReflectionContext *ctx;
+
+void SwiftASTContext::ModulesDidLoad(ModuleList &module_list) {
+  ClearModuleDependentCaches();
+#if 0
+  // Add the images to RemoteMirrors.
+  auto target = m_target_wp.lock();
+  target->GetProcessSP()->GetSwiftLanguageRuntime()->SetupReflection();
+  module_list.ForEach([&](const ModuleSP &module_sp) -> bool {
+    auto *ObjFile = module_sp->GetObjectFile();
+    Address startAddress = ObjFile->GetHeaderAddress();
+    auto loadPtr =
+      static_cast<uintptr_t>(startAddress.GetLoadAddress(target.get()));
+    ctx->addImage(swift::remote::RemoteAddress(loadPtr));
+    return true;
+  });
+#endif
+}
+
+void SwiftLanguageRuntime::SetupReflection() {
+  static bool initialized = false;
+  if (initialized)
+    return;
+  initialized = true;
+  auto &target = m_process->GetTarget();
+  auto M = target.GetExecutableModule();
+  auto *ObjFile = M->GetObjectFile();
+  Address startAddress = ObjFile->GetHeaderAddress();
+  auto loadPtr = static_cast<uintptr_t>(startAddress.GetLoadAddress(&target));
+  
+  ctx = new NativeReflectionContext(this->GetMemoryReader());
+  ctx->addImage(swift::remote::RemoteAddress(loadPtr));
+  //ctx->getBuilder().dumpAllSections(std::cout);
+}
+
 SwiftLanguageRuntime::SwiftLanguageRuntime(Process *process)
     : LanguageRuntime(process), m_negative_cache_mutex(),
       m_SwiftNativeNSErrorISA(), m_memory_reader_sp(), m_promises_map(),
       m_bridged_synthetics_map(), m_box_metadata_type() {
   SetupSwiftError();
   SetupExclusivity();
+  SetupReflection();
+  auto module_list = GetTargetRef().GetImages();
+  module_list.ForEach([&](const ModuleSP &module_sp) -> bool {
+    std::string module_path = module_sp->GetFileSpec().GetPath();
+    if (!(StringRef(module_path).endswith("libswiftCore.dylib")))
+      return true;
+    printf("pat: %s\n", module_path.c_str());
+    auto *ObjFile = module_sp->GetObjectFile();
+    Address startAddress = ObjFile->GetHeaderAddress();
+    auto loadPtr =
+      static_cast<uintptr_t>(startAddress.GetLoadAddress(&(m_process->GetTarget())));
+    ctx->addImage(swift::remote::RemoteAddress(loadPtr));
+    return true;
+  });
 }
 
 static llvm::Optional<lldb::addr_t>
@@ -1024,7 +1080,7 @@ std::shared_ptr<swift::remote::MemoryReader>
 SwiftLanguageRuntime::GetMemoryReader() {
   class MemoryReader : public swift::remote::MemoryReader {
   public:
-    MemoryReader(Process *p, size_t max_read_amount = 50 * 1024)
+    MemoryReader(Process *p, size_t max_read_amount = INT32_MAX)
         : m_process(p) {
       lldbassert(m_process && "MemoryReader requires a valid Process");
       m_max_read_amount = max_read_amount;
@@ -1150,7 +1206,7 @@ SwiftLanguageRuntime::GetMemoryReader() {
             "[MemoryReader] asked to read string data at address 0x%" PRIx64,
             address.getAddressData());
 
-      std::vector<char> storage(m_max_read_amount, 0);
+      std::vector<char> storage(50 * 1024, 0);
       Target &target(m_process->GetTarget());
       Address addr(address.getAddressData());
       Status error;
@@ -1485,6 +1541,14 @@ bool SwiftLanguageRuntime::GetDynamicTypeAndAddress_Class(
   auto instance_type =
     remote_ast.getTypeForRemoteTypeMetadata(metadata_address.getValue(),
                                             /*skipArtificial=*/true);
+#if 0
+  auto x = ctx->readMetadataFromInstance(class_metadata_ptr);
+  std::cout << "mirrors " << *x << "\n";
+  std::cout << "remoteast " << metadata_address.getValue().getAddressData() << "\n";
+  const swift::reflection::TypeInfo *TI =
+    ctx->getMetadataTypeInfo(*x);
+#endif
+
   if (!instance_type) {
     if (log) {
       log->Printf("could not get type metadata from address %llu: %s\n",

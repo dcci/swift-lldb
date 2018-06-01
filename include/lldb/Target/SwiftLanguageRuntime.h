@@ -416,6 +416,10 @@ protected:
   void SetupSwiftError();
   void SetupExclusivity();
 
+public:
+  void SetupReflection();
+private:
+
   const CompilerType &GetBoxMetadataType();
 
   std::shared_ptr<swift::remote::MemoryReader> GetMemoryReader();
