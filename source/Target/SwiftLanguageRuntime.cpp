@@ -93,19 +93,6 @@ NativeReflectionContext *ctx;
 
 void SwiftASTContext::ModulesDidLoad(ModuleList &module_list) {
   ClearModuleDependentCaches();
-#if 0
-  // Add the images to RemoteMirrors.
-  auto target = m_target_wp.lock();
-  target->GetProcessSP()->GetSwiftLanguageRuntime()->SetupReflection();
-  module_list.ForEach([&](const ModuleSP &module_sp) -> bool {
-    auto *ObjFile = module_sp->GetObjectFile();
-    Address startAddress = ObjFile->GetHeaderAddress();
-    auto loadPtr =
-      static_cast<uintptr_t>(startAddress.GetLoadAddress(target.get()));
-    ctx->addImage(swift::remote::RemoteAddress(loadPtr));
-    return true;
-  });
-#endif
 }
 
 void SwiftLanguageRuntime::SetupReflection() {
@@ -134,9 +121,6 @@ SwiftLanguageRuntime::SwiftLanguageRuntime(Process *process)
   auto module_list = GetTargetRef().GetImages();
   module_list.ForEach([&](const ModuleSP &module_sp) -> bool {
     std::string module_path = module_sp->GetFileSpec().GetPath();
-    if (!(StringRef(module_path).endswith("libswiftCore.dylib")))
-      return true;
-    printf("pat: %s\n", module_path.c_str());
     auto *ObjFile = module_sp->GetObjectFile();
     Address startAddress = ObjFile->GetHeaderAddress();
     auto loadPtr =
