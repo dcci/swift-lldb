@@ -1501,51 +1501,28 @@ bool SwiftLanguageRuntime::GetDynamicTypeAndAddress_Class(
   if (class_metadata_ptr == LLDB_INVALID_ADDRESS || class_metadata_ptr == 0)
     return false;
   address.SetRawAddress(class_metadata_ptr);
+  auto metadata = ctx->readMetadataFromInstance(class_metadata_ptr);
+  auto tr = ctx->readTypeFromMetadata(*metadata);
 
+  if (!tr)
+    return false;
+
+  std::string mangled;
+  if (auto *NTR = llvm::dyn_cast<swift::reflection::NominalTypeRef>(tr))
+    mangled = NTR->getMangledName();
+  else if (auto *BGTR = llvm::dyn_cast<swift::reflection::BoundGenericTypeRef>(tr))
+    mangled = BGTR->getMangledName();
+  else
+    llvm_unreachable("Invalid typeref!");
+
+  // FIXME: Use an API to retrieve the prefix instead of hardcoding it.
+  std::string mangled_with_prefix = "$S" + mangled;
   SwiftASTContext *swift_ast_ctx = llvm::dyn_cast_or_null<SwiftASTContext>(
       in_value.GetCompilerType().GetTypeSystem());
 
-  Log *log(GetLogIfAllCategoriesSet(LIBLLDB_LOG_TYPES));
-
-  auto &remote_ast = GetRemoteASTContext(*swift_ast_ctx);
-
-  swift::remote::RemoteAddress instance_address(class_metadata_ptr);
-  auto metadata_address =
-    remote_ast.getHeapMetadataForObject(instance_address);
-  if (!metadata_address) {
-    if (log) {
-      log->Printf("could not read heap metadata for object at %llu: %s\n",
-                  class_metadata_ptr,
-                  metadata_address.getFailure().render().c_str());
-    }
-
-    return false;
-  }
-
-  auto instance_type =
-    remote_ast.getTypeForRemoteTypeMetadata(metadata_address.getValue(),
-                                            /*skipArtificial=*/true);
-#if 0
-  auto x = ctx->readMetadataFromInstance(class_metadata_ptr);
-  std::cout << "mirrors " << *x << "\n";
-  std::cout << "remoteast " << metadata_address.getValue().getAddressData() << "\n";
-  const swift::reflection::TypeInfo *TI =
-    ctx->getMetadataTypeInfo(*x);
-#endif
-
-  if (!instance_type) {
-    if (log) {
-      log->Printf("could not get type metadata from address %llu: %s\n",
-                  metadata_address.getValue(),
-                  instance_type.getFailure().render().c_str());
-    }
-
-    return false;
-  }
-
-  CompilerType result_type(swift_ast_ctx,
-                           instance_type.getValue().getPointer());
-  class_type_or_name.SetCompilerType(result_type);
+  Status error;
+  auto resolvedType = swift_ast_ctx->GetTypeFromMangledTypename(mangled_with_prefix.c_str(), error);
+  class_type_or_name.SetCompilerType(resolvedType);
   return true;
 }
 
